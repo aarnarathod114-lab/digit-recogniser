@@ -80,7 +80,7 @@ demo = gr.Interface(
     flagging_mode="never",
     title="Handwritten Digit Recogniser",
     description="A neural network written from scratch with NumPy, with no machine learning libraries. "
-                "It was trained on 55,000 handwritten digits and gets 97.46% of unseen test digits right.",
+                "It was trained on 55,000 handwritten digits and gets 99.03% of unseen test digits right.",
 )
 
 if __name__ == "__main__":

@@ -84,7 +84,7 @@ def plot_training_curves(history):
 
     for axes in (left, right):
         axes.set_xlabel("Epoch")
-        axes.set_xticks(epochs)
+        axes.set_xticks([epoch for epoch in epochs if epoch == 1 or epoch % 5 == 0 or len(epochs) <= 10])
         axes.grid(axis="y", color=GRID, linewidth=1)
         axes.set_axisbelow(True)
         axes.spines[["top", "right", "left"]].set_visible(False)

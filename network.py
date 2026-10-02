@@ -34,6 +34,9 @@ class NeuralNetwork:
             scale = np.sqrt(2 / inputs)
             self.weights.append(rng.normal(0, scale, (inputs, outputs)).astype(np.float32))
             self.biases.append(np.zeros(outputs, dtype=np.float32))
+        # Momentum remembers the direction each weight and bias has been moving in.
+        self.weight_velocities = [np.zeros_like(w) for w in self.weights]
+        self.bias_velocities = [np.zeros_like(b) for b in self.biases]
 
     def forward(self, x):
         """Pass images through every layer and return the output of each layer."""
@@ -58,14 +61,17 @@ class NeuralNetwork:
                 delta = (delta @ self.weights[i].T) * (activations[i] > 0)
         return weight_gradients, bias_gradients
 
-    def train_step(self, x, targets, learning_rate):
+    def train_step(self, x, targets, learning_rate, momentum=0.0):
         """Learn from one batch of images, and return the loss before the update."""
         activations = self.forward(x)
         weight_gradients, bias_gradients = self.backward(activations, targets)
         for i in range(len(self.weights)):
-            # Gradient descent: move each number a small step in the direction that lowers the loss.
-            self.weights[i] -= learning_rate * weight_gradients[i]
-            self.biases[i] -= learning_rate * bias_gradients[i]
+            # Gradient descent with momentum: keep part of the previous step,
+            # then add a small step in the direction that lowers the loss.
+            self.weight_velocities[i] = momentum * self.weight_velocities[i] - learning_rate * weight_gradients[i]
+            self.bias_velocities[i] = momentum * self.bias_velocities[i] - learning_rate * bias_gradients[i]
+            self.weights[i] += self.weight_velocities[i]
+            self.biases[i] += self.bias_velocities[i]
         return cross_entropy(activations[-1], targets)
 
     def predict(self, x):

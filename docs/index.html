@@ -1,0 +1,291 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Handwritten digit recogniser</title>
+<meta name="description" content="Draw a digit and a neural network written from scratch in NumPy reads it, in your browser.">
+<link rel="icon" href="data:,">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --paper: #fbfcfe;
+    --grid: #dbe6f5;
+    --ink: #16254a;
+    --slate: #56617a;
+    --highlight: #ffd23f;
+    --serif: "Fraunces", Georgia, serif;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--paper); color: var(--ink); font: 17px/1.55 var(--sans); }
+  main { max-width: 940px; margin: 0 auto; padding: 40px 20px 64px; }
+  h1 { font: 600 clamp(2rem, 6vw, 3.2rem)/1.05 var(--serif); margin: 0 0 12px; letter-spacing: -0.01em; }
+  h2 { font: 600 1.35rem/1.2 var(--serif); margin: 48px 0 10px; }
+  p { margin: 0 0 14px; max-width: 62ch; }
+  .lead { color: var(--slate); font-size: 1.1rem; }
+  a { color: var(--ink); text-underline-offset: 3px; }
+  a:focus-visible, button:focus-visible, canvas:focus-visible { outline: 3px solid var(--highlight); outline-offset: 3px; }
+
+  .workspace { display: grid; grid-template-columns: minmax(0, 420px) minmax(0, 1fr); gap: 40px; margin-top: 32px; align-items: start; }
+  @media (max-width: 760px) { .workspace { grid-template-columns: 1fr; gap: 28px; } }
+
+  /* The drawing pad looks like a sheet of graph paper. */
+  #pad {
+    display: block; width: 100%; aspect-ratio: 1; touch-action: none; cursor: crosshair;
+    border: 2px solid var(--ink); border-radius: 6px; background-color: #fff;
+    background-image: linear-gradient(var(--grid) 1px, transparent 1px), linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+    background-size: 10% 10%;
+  }
+  .pad-row { display: flex; justify-content: space-between; align-items: center; margin-top: 12px; gap: 12px; }
+  .hint { color: var(--slate); font-size: 0.95rem; margin: 0; }
+  button { font: 600 1rem var(--sans); color: var(--ink); background: #fff; border: 2px solid var(--ink); border-radius: 6px; padding: 8px 18px; cursor: pointer; }
+  button:hover { background: var(--ink); color: #fff; }
+
+  .answer { display: flex; align-items: center; gap: 24px; min-height: 150px; }
+  #guess { font: 400 9rem/0.9 var(--serif); width: 1.1ch; text-align: center; background: linear-gradient(transparent 62%, var(--highlight) 62%, var(--highlight) 92%, transparent 92%); }
+  #guess:empty { display: none; }
+  #summary { margin: 0; color: var(--slate); }
+  #summary strong { color: var(--ink); }
+
+  .bars { list-style: none; margin: 20px 0 0; padding: 0; display: grid; gap: 5px; }
+  .bars li { display: grid; grid-template-columns: 1.2ch 1fr 4.2ch; align-items: center; gap: 10px; font-variant-numeric: tabular-nums; color: var(--slate); }
+  .bars .track { height: 12px; border-radius: 3px; background: #edf2fa; overflow: hidden; }
+  .bars .fill { display: block; height: 100%; width: 0; background: #a9bbd8; border-radius: 3px; transition: width 120ms ease-out; }
+  .bars li.top { color: var(--ink); font-weight: 600; }
+  .bars li.top .fill { background: var(--ink); }
+  .bars .percent { text-align: right; font-size: 0.9rem; }
+  @media (prefers-reduced-motion: reduce) { .bars .fill { transition: none; } }
+
+  .seen { display: flex; align-items: center; gap: 16px; margin-top: 28px; }
+  #seen { width: 112px; height: 112px; image-rendering: pixelated; border: 1px solid var(--grid); background: #fff; flex: none; }
+  .seen p { margin: 0; color: var(--slate); font-size: 0.95rem; }
+  footer { margin-top: 48px; padding-top: 20px; border-top: 1px solid var(--grid); color: var(--slate); font-size: 0.95rem; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Handwritten digit recogniser</h1>
+  <p class="lead">Draw a digit from 0 to 9. A neural network written from scratch in NumPy, with no machine learning libraries, reads it right here in your browser.</p>
+
+  <div class="workspace">
+    <section aria-label="Drawing pad">
+      <canvas id="pad" width="280" height="280" tabindex="0" aria-label="Draw a digit here"></canvas>
+      <div class="pad-row">
+        <p class="hint">Draw large, with a mouse or a finger.</p>
+        <button id="clear" type="button">Clear</button>
+      </div>
+    </section>
+
+    <section aria-label="The network's guess" aria-live="polite">
+      <div class="answer">
+        <div id="guess"></div>
+        <p id="summary">Loading the network…</p>
+      </div>
+      <ul class="bars" id="bars"></ul>
+      <div class="seen">
+        <canvas id="seen" width="28" height="28" aria-label="The 28 by 28 pixel image the network receives"></canvas>
+        <p>What the network actually sees: your drawing, shrunk to 28 × 28 pixels and centred, the same way its training images were prepared.</p>
+      </div>
+    </section>
+  </div>
+
+  <h2>How it works</h2>
+  <p>The network has 784 inputs (one per pixel), two hidden layers of 256 and 128 neurons, and 10 outputs (one per digit). Every part of it, including backpropagation, is written by hand in Python with NumPy.</p>
+  <p>It learned from 55,000 handwritten digits in the MNIST dataset and gets 99.03% right on 10,000 digits it had never seen. This page loads those learned weights and runs the same calculation in JavaScript, so nothing you draw leaves your device.</p>
+  <p><a href="https://github.com/aarnarathod114-lab/digit-recogniser">Read the code, tests, and experiments on GitHub</a></p>
+
+  <footer>Built by Aarna Rathod.</footer>
+</main>
+
+<script>
+const pad = document.getElementById("pad");
+const pen = pad.getContext("2d", { willReadFrequently: true });
+const seen = document.getElementById("seen").getContext("2d");
+const guess = document.getElementById("guess");
+const summary = document.getElementById("summary");
+const bars = document.getElementById("bars");
+let layers = null;      // the trained weights and biases, once loaded
+let drawing = false;
+let queued = false;
+
+// Build the ten result bars, one per digit.
+for (let digit = 0; digit < 10; digit++) {
+  bars.insertAdjacentHTML("beforeend",
+    `<li><span>${digit}</span><span class="track"><span class="fill"></span></span><span class="percent">0%</span></li>`);
+}
+
+// ---------- Loading the trained network ----------
+
+// weights.bin is one long list of numbers written by export_weights.py:
+// how many layer sizes there are, the sizes, then each layer's weights and biases.
+async function loadNetwork() {
+  const response = await fetch("weights.bin");
+  if (!response.ok) throw new Error("weights.bin not found");
+  const numbers = new Float32Array(await response.arrayBuffer());
+  const count = numbers[0];
+  const sizes = Array.from(numbers.subarray(1, 1 + count));
+  let position = 1 + count;
+  const loaded = [];
+  for (let i = 0; i < count - 1; i++) {
+    const inputs = sizes[i], outputs = sizes[i + 1];
+    const weights = numbers.subarray(position, position + inputs * outputs);
+    position += inputs * outputs;
+    const biases = numbers.subarray(position, position + outputs);
+    position += outputs;
+    loaded.push({ inputs, outputs, weights, biases });
+  }
+  return loaded;
+}
+
+// ---------- The forward pass (the same maths as network.py) ----------
+
+function forward(image) {
+  let values = image;
+  layers.forEach((layer, index) => {
+    const next = new Float32Array(layer.outputs);
+    for (let j = 0; j < layer.outputs; j++) {
+      let total = layer.biases[j];
+      for (let i = 0; i < layer.inputs; i++) total += values[i] * layer.weights[i * layer.outputs + j];
+      next[j] = total;
+    }
+    const last = index === layers.length - 1;
+    values = last ? softmax(next) : next.map(value => Math.max(0, value));   // ReLU on hidden layers
+  });
+  return values;
+}
+
+function softmax(scores) {
+  const highest = Math.max(...scores);
+  const exponentials = Array.from(scores, score => Math.exp(score - highest));
+  const total = exponentials.reduce((sum, value) => sum + value, 0);
+  return exponentials.map(value => value / total);
+}
+
+// ---------- Preparing the drawing (the same steps as preprocess() in app.py) ----------
+
+// Returns 784 numbers (a 28 x 28 image, 0 = blank, 1 = ink), or null if the pad is empty.
+function preprocess() {
+  const size = pad.width;
+  const pixels = pen.getImageData(0, 0, size, size).data;
+  const ink = (x, y) => pixels[(y * size + x) * 4 + 3] / 255;   // how opaque the pixel is
+
+  // Find the box that just contains the digit.
+  let top = size, left = size, bottom = -1, right = -1;
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      if (ink(x, y) > 0.1) {
+        if (y < top) top = y;
+        if (y > bottom) bottom = y;
+        if (x < left) left = x;
+        if (x > right) right = x;
+      }
+    }
+  }
+  if (bottom < 0) return null;
+
+  // Shrink that box so its longer side is 20 pixels, averaging the ink in each block.
+  const boxHeight = bottom - top + 1, boxWidth = right - left + 1;
+  const scale = 20 / Math.max(boxHeight, boxWidth);
+  const height = Math.max(1, Math.round(boxHeight * scale));
+  const width = Math.max(1, Math.round(boxWidth * scale));
+  const small = new Float32Array(height * width);
+  let mass = 0, massY = 0, massX = 0;
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const y0 = top + Math.floor(y * boxHeight / height), y1 = top + Math.max(Math.floor((y + 1) * boxHeight / height), Math.floor(y * boxHeight / height) + 1);
+      const x0 = left + Math.floor(x * boxWidth / width), x1 = left + Math.max(Math.floor((x + 1) * boxWidth / width), Math.floor(x * boxWidth / width) + 1);
+      let total = 0;
+      for (let sy = y0; sy < y1; sy++) for (let sx = x0; sx < x1; sx++) total += ink(sx, sy);
+      const value = total / ((y1 - y0) * (x1 - x0));
+      small[y * width + x] = value;
+      mass += value; massY += value * y; massX += value * x;
+    }
+  }
+
+  // Place it on a 28 x 28 grid so its centre of mass sits in the middle.
+  const clamp = (value, low, high) => Math.min(Math.max(value, low), high);
+  const offsetY = clamp(Math.round(14 - massY / mass), 0, 28 - height);
+  const offsetX = clamp(Math.round(14 - massX / mass), 0, 28 - width);
+  const image = new Float32Array(784);
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) image[(y + offsetY) * 28 + (x + offsetX)] = small[y * width + x];
+  }
+  return image;
+}
+
+// ---------- Showing the result ----------
+
+function update() {
+  queued = false;
+  if (!layers) return;
+  const image = preprocess();
+  const probabilities = image ? forward(image) : new Array(10).fill(0);
+  const best = image ? probabilities.indexOf(Math.max(...probabilities)) : -1;
+
+  guess.textContent = image ? best : "";
+  summary.innerHTML = image
+    ? `The network reads this as a <strong>${best}</strong>, and is ${Math.round(probabilities[best] * 100)}% sure.`
+    : "Draw a digit on the left to see the network's guess.";
+  [...bars.children].forEach((row, digit) => {
+    row.classList.toggle("top", digit === best);
+    row.querySelector(".fill").style.width = `${probabilities[digit] * 100}%`;
+    row.querySelector(".percent").textContent = `${Math.round(probabilities[digit] * 100)}%`;
+  });
+
+  // Paint the 28 x 28 image: dark ink on white.
+  const picture = seen.createImageData(28, 28);
+  for (let i = 0; i < 784; i++) {
+    const shade = 255 - Math.round((image ? image[i] : 0) * 255);
+    picture.data.set([shade, shade, shade, 255], i * 4);
+  }
+  seen.putImageData(picture, 0, 0);
+}
+
+function scheduleUpdate() {
+  if (!queued) { queued = true; requestAnimationFrame(update); }
+}
+
+// ---------- Drawing with a mouse, finger, or pen ----------
+
+function position(event) {
+  const box = pad.getBoundingClientRect();
+  return [(event.clientX - box.left) * pad.width / box.width, (event.clientY - box.top) * pad.height / box.height];
+}
+
+pen.lineWidth = 20;
+pen.lineCap = "round";
+pen.lineJoin = "round";
+pen.strokeStyle = "#16254a";
+
+pad.addEventListener("pointerdown", event => {
+  drawing = true;
+  pad.setPointerCapture(event.pointerId);
+  const [x, y] = position(event);
+  pen.beginPath();
+  pen.moveTo(x, y);
+  pen.lineTo(x + 0.01, y);   // so a single tap leaves a dot
+  pen.stroke();
+  scheduleUpdate();
+});
+pad.addEventListener("pointermove", event => {
+  if (!drawing) return;
+  pen.lineTo(...position(event));
+  pen.stroke();
+  scheduleUpdate();
+});
+["pointerup", "pointercancel"].forEach(name => pad.addEventListener(name, () => { drawing = false; }));
+
+document.getElementById("clear").addEventListener("click", () => {
+  pen.clearRect(0, 0, pad.width, pad.height);
+  scheduleUpdate();
+});
+
+loadNetwork()
+  .then(loaded => { layers = loaded; update(); })
+  .catch(() => { summary.textContent = "The network could not be loaded. Refresh the page to try again."; });
+</script>
+</body>
+</html>
